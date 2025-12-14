@@ -2,34 +2,43 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
+import Link from "next/link";
+
+type SettingsRow = {
+  avg_cycle_length: number;
+  last_period_start: string;
+};
 
 export default function SettingsPage() {
   const [avgCycle, setAvgCycle] = useState<number>(28);
   const [lastPeriod, setLastPeriod] = useState<string>("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     loadSettings();
   }, []);
 
   async function loadSettings() {
+    setLoading(true);
     const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
+    if (!user) {
+      setLoading(false);
+      return;
+    }
 
     const { data, error } = await supabase
       .from("user_cycle_settings")
       .select("*")
       .eq("user_id", user.id)
-      .maybeSingle();
+      .maybeSingle<SettingsRow>();
 
-    if (error) {
-      console.error(error);
-      return;
-    }
-
-    if (data) {
+    if (!error && data) {
       setAvgCycle(data.avg_cycle_length);
       setLastPeriod(data.last_period_start);
     }
+
+    setLoading(false);
   }
 
   async function saveSettings() {
@@ -38,48 +47,79 @@ export default function SettingsPage() {
       alert("Not logged in");
       return;
     }
+    if (!lastPeriod || !avgCycle) {
+      alert("Please fill both fields.");
+      return;
+    }
 
-    const { error } = await supabase
-      .from("user_cycle_settings")
-      .upsert({
-        user_id: user.id,
-        avg_cycle_length: avgCycle,
-        last_period_start: lastPeriod,
-      });
+    setSaving(true);
+    const { error } = await supabase.from("user_cycle_settings").upsert({
+      user_id: user.id,
+      avg_cycle_length: avgCycle,
+      last_period_start: lastPeriod,
+    });
+
+    setSaving(false);
 
     if (error) {
-      alert(error.message);
+      alert("Error saving: " + error.message);
     } else {
       alert("Settings saved");
     }
   }
 
   return (
-    <div className="p-8 max-w-md mx-auto">
-      <h1 className="text-xl font-bold mb-4">Cycle Settings</h1>
+    <div className="center-page">
+      <div className="page-card page-card-wide">
+        <div className="page-actions-row">
+          <div>
+            <h1 className="page-title" style={{ marginBottom: "0.25rem" }}>
+              Cycle settings
+            </h1>
+            <p className="page-subtitle" style={{ marginBottom: 0 }}>
+              These settings help the planner understand where you are in your cycle.
+            </p>
+          </div>
+          <Link href="/today" className="small-link">
+            Go to Today
+          </Link>
+        </div>
 
-      <label className="block mb-1">Average cycle length (days)</label>
-      <input
-        type="number"
-        className="border w-full p-2 mb-3"
-        value={avgCycle}
-        onChange={(e) => setAvgCycle(Number(e.target.value))}
-      />
+        {loading ? (
+          <p className="analytics-small-text">Loading settings…</p>
+        ) : (
+          <>
+            <div className="field-group">
+              <label className="field-label">Average cycle length (days)</label>
+              <input
+                type="number"
+                className="field-input"
+                value={avgCycle}
+                onChange={(e) => setAvgCycle(Number(e.target.value))}
+              />
+            </div>
 
-      <label className="block mb-1">Last period start date</label>
-      <input
-        type="date"
-        className="border w-full p-2 mb-3"
-        value={lastPeriod}
-        onChange={(e) => setLastPeriod(e.target.value)}
-      />
+            <div className="field-group">
+              <label className="field-label">Last period start date</label>
+              <input
+                type="date"
+                className="field-input"
+                value={lastPeriod}
+                onChange={(e) => setLastPeriod(e.target.value)}
+              />
+            </div>
 
-      <button
-        onClick={saveSettings}
-        className="bg-blue-600 text-white p-2 rounded"
-      >
-        Save
-      </button>
+            <button
+              onClick={saveSettings}
+              className="primary-btn"
+              style={{ width: "100%", marginTop: "0.75rem" }}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save settings"}
+            </button>
+          </>
+        )}
+      </div>
     </div>
   );
 }

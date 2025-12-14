@@ -2,77 +2,201 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
-import { getCycleInfo } from "../../lib/cycleUtils";
+import { useRouter } from "next/navigation";
+import { differenceInCalendarDays, parseISO } from "date-fns";
 
 type CycleInfo = {
-  cycleDay: number;
+  cycleDay: number | null;
   phase: string;
 };
 
+type SettingsRow = {
+  avg_cycle_length: number;
+  last_period_start: string;
+};
+
+type DailyLogRow = {
+  mood: number | null;
+  energy: number | null;
+  cycle_day: number | null;
+  cycle_phase: string | null;
+  date: string;
+  flow: string | null;
+
+};
+
+function computeCycleInfo(
+  lastPeriodStart: string | null,
+  avgCycleLength: number | null,
+  forDate: string
+): CycleInfo {
+  if (!lastPeriodStart || !avgCycleLength) {
+    return { cycleDay: null, phase: "Unknown" };
+  }
+
+  const start = parseISO(lastPeriodStart);
+  const current = parseISO(forDate);
+  const diff = differenceInCalendarDays(current, start);
+
+  if (diff < 0) return { cycleDay: null, phase: "Unknown" };
+
+  const cycleDay = (diff % avgCycleLength) + 1;
+
+  let phase = "Luteal";
+  if (cycleDay >= 1 && cycleDay <= 5) phase = "Menstrual";
+  else if (cycleDay <= 12) phase = "Follicular";
+  else if (cycleDay <= 16) phase = "Ovulatory";
+
+  return { cycleDay, phase };
+}
+
 export default function TodayPage() {
-  const [cycleInfo, setCycleInfo] = useState<CycleInfo | null>(null);
-  const [mood, setMood] = useState<number>(3);
-  const [energy, setEnergy] = useState<number>(3);
+  const router = useRouter();
+
+  const [settings, setSettings] = useState<SettingsRow | null>(null);
+
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [flow, setFlow] = useState<string>("none");
+
+  const [cycleInfo, setCycleInfo] = useState<CycleInfo>({
+    cycleDay: null,
+    phase: "Unknown",
+  });
+
+  const [mood, setMood] = useState<number | "">("");
+  const [energy, setEnergy] = useState<number | "">("");
+
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  const todayIso = new Date().toISOString().slice(0, 10);
+
   useEffect(() => {
-    loadCycleData();
+    init();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  async function loadCycleData() {
+  async function init() {
     setLoading(true);
-    const { data: { user } } = await supabase.auth.getUser();
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
     if (!user) {
-      alert("Not logged in");
-      setLoading(false);
+      router.push("/login");
       return;
     }
 
-    const { data, error } = await supabase
+    // Load settings
+    const { data: settingsData, error: settingsError } = await supabase
       .from("user_cycle_settings")
       .select("*")
       .eq("user_id", user.id)
-      .maybeSingle();
+      .maybeSingle<SettingsRow>();
 
-    if (error) {
-      console.error("Error loading cycle settings:", error.message);
-      setLoading(false);
-      return;
+    if (settingsError) {
+      console.error(settingsError.message);
+    } else {
+      setSettings(settingsData ?? null);
     }
 
-    if (!data) {
-      alert("No cycle settings found. Please fill them in first.");
-      // could redirect to /settings, but let's just warn for now
-      setLoading(false);
-      return;
-    }
+    // Default date = today
+    const defaultDate = todayIso;
+    setSelectedDate(defaultDate);
 
-    const info = getCycleInfo(data.last_period_start, data.avg_cycle_length);
-    setCycleInfo(info);
+    // Load log + compute phase for default date
+    await loadForDate(defaultDate, settingsData ?? null);
+
     setLoading(false);
   }
 
-  async function saveDailyLog() {
-    if (!cycleInfo) return;
+  async function loadForDate(dateIso: string, settingsOverride?: SettingsRow | null) {
+    const activeSettings = settingsOverride ?? settings;
 
-    setSaving(true);
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) {
-      alert("Not logged in");
-      setSaving(false);
+    // Recompute cycle info for selected date
+    const info = computeCycleInfo(
+      activeSettings?.last_period_start ?? null,
+      activeSettings?.avg_cycle_length ?? null,
+      dateIso
+    );
+    setCycleInfo(info);
+
+    // Load existing log for that date
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return;
+
+    const { data: log, error: logError } = await supabase
+      .from("daily_logs")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("date", dateIso)
+      .maybeSingle<DailyLogRow>();
+
+    if (logError) {
+      console.error("Error loading log:", logError.message);
+      setMood("");
+      setEnergy("");
       return;
     }
 
-    const todayStr = new Date().toISOString().split("T")[0];
+    if (log) {
+      setMood(log.mood ?? "");
+      setEnergy(log.energy ?? "");
+      setFlow(log.flow ?? "none");
+
+    } else {
+      // No log yet for that day
+      setMood("");
+      setEnergy("");
+      setFlow("none");
+
+    }
+  }
+
+  function onChangeDate(newDate: string) {
+    setSelectedDate(newDate);
+    loadForDate(newDate);
+  }
+
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    router.push("/login");
+  }
+
+  async function saveDailyLog() {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      alert("Not logged in");
+      return;
+    }
+
+    if (!selectedDate) {
+      alert("Missing date");
+      return;
+    }
+
+    // Optional: prevent logging future dates
+    if (selectedDate > todayIso) {
+      alert("Future logging is disabled. Pick today or a past date.");
+      return;
+    }
+
+    setSaving(true);
 
     const { error } = await supabase.from("daily_logs").upsert({
       user_id: user.id,
-      date: todayStr,
-      mood,
-      energy,
+      date: selectedDate,
+      mood: mood === "" ? null : mood,
+      energy: energy === "" ? null : energy,
       cycle_day: cycleInfo.cycleDay,
       cycle_phase: cycleInfo.phase,
+      flow,
     });
 
     setSaving(false);
@@ -80,87 +204,124 @@ export default function TodayPage() {
     if (error) {
       alert("Error saving log: " + error.message);
     } else {
-      alert("Today's log saved");
+      alert(`Saved for ${selectedDate}.`);
     }
   }
 
-  if (loading) {
-    return <div className="p-8">Loading...</div>;
-  }
-
-  if (!cycleInfo) {
-    return (
-      <div className="p-8">
-        <h1 className="text-xl font-bold mb-2">Today</h1>
-        <p>No cycle info available. Go to <a href="/settings" className="text-blue-600 underline">Settings</a> first.</p>
-      </div>
-    );
-  }
-
   return (
-  <div className="p-8 max-w-md mx-auto">
-    {/* Header with logout */}
-    <div className="flex justify-between items-center mb-6">
-      <h1 className="text-xl font-bold">Today</h1>
-      <button
-        onClick={handleLogout}
-        className="text-sm text-red-600 underline"
-      >
-        Logout
-      </button>
+    <div className="center-page">
+      <div className="page-card page-card-wide">
+        <div className="page-actions-row">
+          <div>
+            <h1 className="page-title" style={{ marginBottom: "0.1rem" }}>
+              Daily log
+            </h1>
+            <p className="page-subtitle" style={{ marginBottom: 0 }}>
+              Pick any past day you missed and fill it in.
+            </p>
+          </div>
+          <button onClick={handleLogout} className="logout-link">
+            Log out
+          </button>
+        </div>
+
+        {loading ? (
+          <p className="analytics-small-text">Loading…</p>
+        ) : (
+          <>
+            {/* Date picker */}
+            <div className="field-group">
+              <label className="field-label">Log date</label>
+              <input
+                type="date"
+                className="field-input"
+                value={selectedDate}
+                max={todayIso} // prevents selecting future dates in UI
+                onChange={(e) => onChangeDate(e.target.value)}
+              />
+              <div className="small-link-row" style={{ marginTop: "0.35rem" }}>
+                Tip: you can backfill missed days here.
+              </div>
+            </div>
+
+            {/* Cycle pills */}
+            <div className="stats-pill-row">
+              <div className="stats-pill">
+                <strong>Cycle day:</strong> {cycleInfo.cycleDay ?? "—"}
+              </div>
+              <div className="stats-pill">
+                <strong>Phase:</strong> {cycleInfo.phase}
+              </div>
+            </div>
+
+            {/* Inputs */}
+            <div className="field-group">
+              <label className="field-label">Mood (1–5)</label>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                className="field-input"
+                value={mood}
+                onChange={(e) =>
+                  setMood(e.target.value === "" ? "" : Number(e.target.value))
+                }
+              />
+            </div>
+
+            <div className="field-group">
+              <label className="field-label">Energy (1–5)</label>
+              <input
+                type="number"
+                min={1}
+                max={5}
+                className="field-input"
+                value={energy}
+                onChange={(e) =>
+                  setEnergy(e.target.value === "" ? "" : Number(e.target.value))
+                }
+              />
+            </div>
+            <div className="field-group">
+              <label className="field-label">Period flow</label>
+              <select
+              className="field-input"
+              value={flow}
+              onChange={(e) => setFlow(e.target.value)}
+              >
+                <option value="none">None</option>
+                <option value="spotting">Spotting</option>
+                <option value="light">Light</option>
+                <option value="medium">Medium</option>
+                <option value="heavy">Heavy</option>
+                </select>
+                <div className="small-link-row" style={{ marginTop: "0.35rem" }}>
+                  Tip: log flow even if mood/energy is blank.
+                  </div>
+                  </div>
+
+
+            <button
+              onClick={saveDailyLog}
+              className="primary-btn"
+              style={{ width: "100%", marginTop: "0.75rem" }}
+              disabled={saving}
+            >
+              {saving ? "Saving…" : "Save log"}
+            </button>
+
+            {!settings?.last_period_start && (
+              <div className="small-link-row" style={{ marginTop: "0.75rem" }}>
+                Your cycle phase will be more accurate after you set{" "}
+                <a className="small-link" href="/settings">
+                  Settings
+                </a>
+                .
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
-
-    {/* Cycle info */}
-    <p className="mb-1">
-      Cycle Day: <b>{cycleInfo.cycleDay}</b>
-    </p>
-    <p className="mb-4">
-      Phase: <b>{cycleInfo.phase}</b>
-    </p>
-
-    {/* Mood input */}
-    <label className="block mb-1">Mood (1–5)</label>
-    <input
-      type="number"
-      min={1}
-      max={5}
-      className="border w-full p-2 mb-3"
-      value={mood}
-      onChange={(e) => setMood(Number(e.target.value))}
-    />
-
-    {/* Energy input */}
-    <label className="block mb-1">Energy (1–5)</label>
-    <input
-      type="number"
-      min={1}
-      max={5}
-      className="border w-full p-2 mb-4"
-      value={energy}
-      onChange={(e) => setEnergy(Number(e.target.value))}
-    />
-
-    {/* Save button */}
-    <button
-      onClick={saveDailyLog}
-      disabled={saving}
-      className="bg-green-600 text-white p-2 rounded w-full disabled:opacity-60"
-    >
-      {saving ? "Saving..." : "Save Today’s Log"}
-    </button>
-
-    {/* Link to analytics */}
-    <div className="mt-6 text-center">
-      <a href="/analytics" className="text-blue-600 underline text-sm">
-        View Analytics
-      </a>
-    </div>
-  </div>
   );
-
-  async function handleLogout() {
-  await supabase.auth.signOut();
-  window.location.href = "/login";
-  }
-
 }

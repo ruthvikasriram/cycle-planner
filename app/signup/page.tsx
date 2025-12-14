@@ -3,17 +3,23 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "../../lib/supabaseClient";
+import Link from "next/link";
 
 export default function SignupPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
 
   async function handleSignup() {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
+    if (!email || !password) {
+      alert("Please enter email and password.");
+      return;
+    }
+
+    setBusy(true);
+    const { error } = await supabase.auth.signUp({ email, password });
+    setBusy(false);
 
     if (error) {
       alert(error.message);
@@ -24,30 +30,50 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="p-8 max-w-md mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Create Account</h1>
+    <div className="center-page">
+      <div className="page-card">
+        <h1 className="page-title">Create your space</h1>
+        <p className="page-subtitle">
+          Make an account to start logging mood and energy across your cycle.
+        </p>
 
-      <input
-        className="border w-full p-2 mb-3"
-        placeholder="Email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-      />
+        <div className="field-group">
+          <label className="field-label">Email</label>
+          <input
+            className="field-input"
+            placeholder="you@example.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+        </div>
 
-      <input
-        className="border w-full p-2 mb-3"
-        placeholder="Password"
-        type="password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-      />
+        <div className="field-group">
+          <label className="field-label">Password</label>
+          <input
+            className="field-input"
+            type="password"
+            placeholder="••••••••"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
 
-      <button
-        onClick={handleSignup}
-        className="bg-blue-600 text-white p-2 rounded"
-      >
-        Sign Up
-      </button>
+        <button
+          onClick={handleSignup}
+          className="primary-btn"
+          style={{ width: "100%", marginTop: "0.75rem", marginBottom: "0.75rem" }}
+          disabled={busy}
+        >
+          {busy ? "Creating account…" : "Sign up"}
+        </button>
+
+        <div className="small-link-row">
+          Already have an account?{" "}
+          <Link href="/login" className="small-link">
+            Log in
+          </Link>
+        </div>
+      </div>
     </div>
   );
 }

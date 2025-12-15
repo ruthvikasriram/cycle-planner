@@ -160,6 +160,12 @@ export default function HomePage() {
               Over weeks and months, you see when you naturally have more social,
               deep-focus, or low-energy days.
             </li>
+            <li>
+              <span className="bullet-label">
+                5. You log your monthly flow.
+              </span>{" "}
+              Over months, you see how your flow is changing.
+            </li>
           </ul>
         </div>
 

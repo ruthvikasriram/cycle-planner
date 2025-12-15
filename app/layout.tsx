@@ -10,7 +10,7 @@ const dmSans = DM_Sans({
 export const metadata: Metadata = {
   title: "Cycle-Aware Wellness Planner",
   description:
-    "Track mood and energy across your cycle with gentle, data-backed insights.",
+    "Track mood and energy across your cycle with gentle, data-backed insights by Ruthvika Sriram.",
 };
 
 export default function RootLayout({
@@ -29,7 +29,7 @@ export default function RootLayout({
                 <div>
                   <div className="brand-text-main">Cycle Planner</div>
                   <div className="brand-text-sub">
-                    hormone-aware daily check-ins
+                    hormone-aware daily check-ins <b> by RUTHVIKA SRIRAM</b>
                   </div>
                 </div>
               </a>
@@ -53,8 +53,18 @@ export default function RootLayout({
               </nav>
             </div>
           </header>
-
           <main className="home-main">{children}</main>
+          <footer
+  style={{
+    textAlign: "center",
+    padding: "1.5rem 1rem 2rem",
+    fontSize: "0.7rem",
+    color: "rgba(127, 29, 29, 0.8)",
+  }}
+>
+  Built and designed by <strong>Ruthvika Sriram</strong> · Cycle-aware wellness
+  analytics
+</footer>
         </div>
       </body>
     </html>

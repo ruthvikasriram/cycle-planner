@@ -1,5 +1,5 @@
 "use client";
-
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 import {
@@ -27,7 +27,9 @@ type LogEntry = {
   energy: number | null;
   cycle_day: number | null;
   cycle_phase: string | null;
-  flow?: string | null; // can be missing if column not added yet
+  flow?: string | null; 
+  notes?: string | null;
+
 };
 
 type MonthMeta = {
@@ -55,10 +57,10 @@ function flowToLabel(flow?: string | null) {
 export default function AnalyticsPage() {
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
-
   const [selectedMonthKey, setSelectedMonthKey] = useState<string>(""); // "YYYY-MM"
   const [selectedDate, setSelectedDate] = useState<string>(""); // "YYYY-MM-DD"
   const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     loadLogs();
@@ -80,7 +82,7 @@ export default function AnalyticsPage() {
 
     const { data, error } = await supabase
       .from("daily_logs")
-      .select("date,mood,energy,cycle_day,cycle_phase,flow")
+      .select("date,mood,energy,cycle_day,cycle_phase,flow,notes")
       .eq("user_id", user.id)
       .order("date", { ascending: true });
 
@@ -100,6 +102,7 @@ export default function AnalyticsPage() {
       setSelectedMonthKey(monthKeyFromISO(last.date));
       setSelectedDate(last.date);
       setSelectedLog(last);
+      
     }
 
     setLoading(false);
@@ -161,6 +164,7 @@ export default function AnalyticsPage() {
         mood: safeNumber(l.mood),
         energy: safeNumber(l.energy),
         flow: flowToLabel(l.flow),
+        
       }))
       .sort((a, b) => a.day - b.day);
   }, [logs, selectedMonthKey]);
@@ -168,7 +172,7 @@ export default function AnalyticsPage() {
   function handleDateChange(value: string) {
     setSelectedDate(value);
     setSelectedLog(logsByDate[value] ?? null);
-
+    
     // If user picks a date in a different month, switch month automatically
     if (value && value.length >= 7) {
       const mk = value.slice(0, 7);
@@ -257,7 +261,7 @@ export default function AnalyticsPage() {
             value={selectedDate}
             onChange={(e) => handleDateChange(e.target.value)}
           />
-
+          
           {selectedDate && selectedLog ? (
             <div className="analytics-small-text">
               <p>
@@ -270,11 +274,16 @@ export default function AnalyticsPage() {
               </p>
               <p>
                 <strong>Flow:</strong> {flowToLabel(selectedLog.flow)}
-              </p>
+              </p>{selectedLog.notes && (
+  <p>
+    <strong>Notes:</strong> {selectedLog.notes}
+  </p>
+)}
             </div>
           ) : selectedDate ? (
             <p className="analytics-small-text">No entry logged for this date.</p>
           ) : null}
+          
         </div>
       </div>
 
@@ -411,7 +420,7 @@ export default function AnalyticsPage() {
                           "calendar-cell" + (hasLog ? " calendar-cell--logged" : "")
                         }
                         title={iso}
-                        onClick={() => handleDateChange(iso)}
+                        onClick={() => router.push(`/today?date=${iso}`)}
                         style={{ cursor: "pointer" }}
                       >
                         <div className="calendar-day">{format(day, "d")}</div>

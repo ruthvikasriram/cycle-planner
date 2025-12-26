@@ -1,3 +1,4 @@
+export const dynamic = "force-dynamic";
 "use client";
 import { computePhase } from "../../lib/cycle";
 import { useEffect, useState } from "react";
